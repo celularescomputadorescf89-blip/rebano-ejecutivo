@@ -5,6 +5,7 @@ package.domain = com.rebanoejecutivo.app
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 version = 1.0
+icon.filename = %(source.dir)s/icon.png
 requirements = python3==3.11.6,hostpython3==3.11.6,kivy,requests
 
 orientation = portrait
