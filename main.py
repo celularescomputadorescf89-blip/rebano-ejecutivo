@@ -8,12 +8,15 @@ from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.popup import Popup
-from kivy.graphics import Color, Rectangle
+from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.core.window import Window
 from kivy.metrics import dp
 from kivy.utils import get_color_from_hex
 from kivy.clock import Clock
 from kivy.uix.spinner import Spinner
+from kivy.uix.accordion import Accordion, AccordionItem
+import smtplib
+from email.mime.text import MIMEText
 import requests
 import json
 from datetime import datetime, timedelta
@@ -38,6 +41,7 @@ KIVY_FONT_FAMILY = None
 # CONFIGURACIÓN VISUAL
 # ========================
 Window.clearcolor = get_color_from_hex('#000000')
+Window.softinput_mode = 'below_target'
 BLACK = '#000000'
 WHITE = '#FFFFFF'
 BLUE = '#1976D2'
@@ -52,7 +56,32 @@ ORANGE = '#FF9800'
 # ========================
 # 🔥 CONFIGURACIÓN DE FIREBASE (TU PROYECTO)
 # ========================
-FIREBASE_URL = "https://redilejecutivo-d2bbc-default-rtdb.firebaseio.com/"
+FIREBASE_URL = "https://redilejecutivo-d2bbc-default-rtdb.firebaseio.com"
+
+# ========================
+# 📧 CONFIGURACIÓN DE CORREO (PARA RECUPERAR CONTRASEÑA)
+# Reemplaza estos dos valores con tu propia cuenta de Gmail
+# y una "Contraseña de aplicación" generada en:
+# https://myaccount.google.com/apppasswords
+# ========================
+SMTP_EMAIL = "redilejecutivo@gmail.com"
+SMTP_PASSWORD = "pljd yuda gvrv gaqk"
+
+def enviar_correo(destinatario, asunto, cuerpo, on_complete):
+    def run():
+        try:
+            msg = MIMEText(cuerpo)
+            msg['Subject'] = asunto
+            msg['From'] = SMTP_EMAIL
+            msg['To'] = destinatario
+
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                server.login(SMTP_EMAIL, SMTP_PASSWORD)
+                server.sendmail(SMTP_EMAIL, [destinatario], msg.as_string())
+            Clock.schedule_once(lambda dt: on_complete(True, None), 0)
+        except Exception as e:
+            Clock.schedule_once(lambda dt: on_complete(False, str(e)), 0)
+    threading.Thread(target=run).start()
 
 # --- NUEVAS FUNCIONES PARA EL MANEJO DE LA CONEXIÓN Y LA CACHÉ ---
 class NetworkStatus:
@@ -333,7 +362,7 @@ def mostrar_popup_exito(mensaje, on_dismiss=None, markup=False):
 def mostrar_popup_error(mensaje):
     content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
     content.add_widget(crear_label(mensaje, color=get_color_from_hex(WHITE), halign='center'))
-    btn = crear_boton("Cerrar", RED, size_hint_y=None, alpha=1)
+    btn = crear_boton("❌ Cerrar", RED, size_hint_y=None, alpha=1)
     content.add_widget(btn)
     popup = Popup(title='Error', content=content, background_color=get_color_from_hex(RED), size_hint=(0.8, 0.4))
     btn.bind(on_press=popup.dismiss)
@@ -349,19 +378,35 @@ def crear_titulo(texto, color=YELLOW):
         height=dp(40)
     )
 
+class BotonRedondeado(Button):
+    """Botón con esquinas totalmente redondeadas (forma ovalada/píldora)."""
+    def __init__(self, rgba_color=(0.2, 0.4, 0.8, 1), **kwargs):
+        super().__init__(**kwargs)
+        self.background_color = (0, 0, 0, 0)
+        self.background_normal = ''
+        self.background_down = ''
+        self.rgba_color = rgba_color
+        with self.canvas.before:
+            self.color_instr = Color(*self.rgba_color)
+            self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(24)])
+        self.bind(pos=self._actualizar_rect, size=self._actualizar_rect)
+
+    def _actualizar_rect(self, *args):
+        self.rect.pos = self.pos
+        self.rect.size = self.size
+        self.rect.radius = [min(self.height, dp(30)) / 2]
+
+
 def crear_boton(texto, color_hex, on_press=None, size_hint_y=None, alpha=1.0):
     """
-    Crea un botón con color de fondo y transparencia personalizables.
-    background_normal='' asegura que se elimine la imagen por defecto.
+    Crea un botón ovalado con color de fondo y transparencia personalizables.
     """
     color = get_color_from_hex(color_hex)
     rgba_color = (color[0], color[1], color[2], alpha)
     
-    btn = Button(
+    btn = BotonRedondeado(
         text=texto,
-        background_color=rgba_color,
-        background_normal='',
-        background_down='',
+        rgba_color=rgba_color,
         color=get_color_from_hex(WHITE),
         size_hint_y=size_hint_y or None,
         height=dp(45),
@@ -371,33 +416,44 @@ def crear_boton(texto, color_hex, on_press=None, size_hint_y=None, alpha=1.0):
         btn.bind(on_press=on_press)
     return btn
 
-# --- POPUP DE CALENDARIO REUTILIZABLE ---
+# --- POPUP DE CALENDARIO REUTILIZABLE (con spinners seleccionables) ---
 class CalendarPopup(Popup):
     def __init__(self, on_date_select, **kwargs):
-        super().__init__(title='Fecha', size_hint=(0.9, 0.7), **kwargs)
+        super().__init__(title='Selecciona una fecha', size_hint=(0.9, 0.7), **kwargs)
         self.on_date_select = on_date_select
         content = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(10))
-        self.year = crear_input(hint="Año (1990)", input_filter='int')
-        self.month = crear_input(hint="Mes (1-12)", input_filter='int')
-        self.day = crear_input(hint="Día (1-31)", input_filter='int')
-        for w in [self.year, self.month, self.day]:
-            content.add_widget(w)
-        btn_guardar = crear_boton("Guardar Fecha", GREEN, self.save_date)
-        btn_cancel = crear_boton("Cancelar", GRAY, self.dismiss)
+
+        anos = [str(a) for a in range(2025, 1899, -1)]
+        meses = [f"{m:02d}" for m in range(1, 13)]
+        dias = [f"{d:02d}" for d in range(1, 32)]
+
+        content.add_widget(crear_label("Año", color=get_color_from_hex(WHITE), size_hint_y=None, height=dp(25)))
+        self.spinner_year = Spinner(text=anos[0], values=anos, size_hint_y=None, height=dp(45))
+        content.add_widget(self.spinner_year)
+
+        content.add_widget(crear_label("Mes", color=get_color_from_hex(WHITE), size_hint_y=None, height=dp(25)))
+        self.spinner_month = Spinner(text=meses[0], values=meses, size_hint_y=None, height=dp(45))
+        content.add_widget(self.spinner_month)
+
+        content.add_widget(crear_label("Día", color=get_color_from_hex(WHITE), size_hint_y=None, height=dp(25)))
+        self.spinner_day = Spinner(text=dias[0], values=dias, size_hint_y=None, height=dp(45))
+        content.add_widget(self.spinner_day)
+
+        btn_guardar = crear_boton("💾 Guardar Fecha", GREEN, self.save_date)
+        btn_cancel = crear_boton("❌ Cancelar", GRAY, self.dismiss)
         content.add_widget(btn_guardar)
         content.add_widget(btn_cancel)
         self.content = content
 
     def save_date(self, *args):
         try:
-            y, m, d = int(self.year.text), int(self.month.text), int(self.day.text)
-            if 1900 <= y <= 2025 and 1 <= m <= 12 and 1 <= d <= 31:
-                self.on_date_select(f"{y:04d}-{m:02d}-{d:02d}")
-                self.dismiss()
-            else:
-                mostrar_popup_error("Fecha inválida")
+            y = int(self.spinner_year.text)
+            m = int(self.spinner_month.text)
+            d = int(self.spinner_day.text)
+            self.on_date_select(f"{y:04d}-{m:02d}-{d:02d}")
+            self.dismiss()
         except:
-            mostrar_popup_error("Ingresa números válidos")
+            mostrar_popup_error("Selecciona una fecha válida")
 
 # ========================
 # PANTALLAS
@@ -412,10 +468,10 @@ class LoginScreen(Screen):
         self.password = crear_input("Contraseña", password=True)
         layout.add_widget(self.username)
         layout.add_widget(self.password)
-        btn_login = crear_boton("Iniciar Sesión", BLUE, alpha=0.8)
+        btn_login = crear_boton("🔐 Iniciar Sesión", BLUE, alpha=0.8)
         btn_login.bind(on_press=self.start_login)
-        btn_register = crear_boton("Crear Cuenta", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'register'), alpha=0.8)
-        btn_recuperar = crear_boton("¿Olvidaste tu contraseña?", GRAY, self.recuperar_contrasena, alpha=0.5)
+        btn_register = crear_boton("📝 Crear Cuenta", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'register'), alpha=0.8)
+        btn_recuperar = crear_boton("🔑 ¿Olvidaste tu contraseña?", GRAY, self.recuperar_contrasena, alpha=0.5)
         
         self.spinner = Spinner(text="Loading...", size_hint=(None, None), size=(dp(100), dp(50)), pos_hint={'center_x': 0.5}, opacity=0)
         
@@ -462,6 +518,25 @@ class LoginScreen(Screen):
         input_recuperar = crear_input("Usuario o correo")
         content.add_widget(input_recuperar)
 
+        estado = {"nueva_contrasena": None, "correo_destino": None}
+
+        def correo_callback(success, error):
+            if success:
+                mostrar_popup_exito(f"✅ Hemos enviado tu nueva contraseña a:\n{estado['correo_destino']}\n\nRevisa tu bandeja de entrada (y la carpeta de spam).")
+            else:
+                mostrar_popup_error(f"❌ La contraseña se restableció pero no se pudo enviar el correo.\n\nDetalle: {error}")
+
+        def reset_callback(success, response):
+            if success:
+                enviar_correo(
+                    destinatario=estado['correo_destino'],
+                    asunto="Recuperación de contraseña - RebañoEjecutivo",
+                    cuerpo=f"Hola,\n\nTu nueva contraseña temporal es: {estado['nueva_contrasena']}\n\nPor favor inicia sesión con ella y considera cambiarla luego.\n\n- RebañoEjecutivo",
+                    on_complete=correo_callback
+                )
+            else:
+                mostrar_popup_error(f"❌ Error al restablecer la contraseña: {response}")
+
         def buscar_callback(success, data):
             if not success:
                 popup.dismiss()
@@ -471,8 +546,17 @@ class LoginScreen(Screen):
             valor = input_recuperar.text.strip()
             for uid, user in data.items():
                 if user.get("nombre_usuario") == valor or user.get("correo") == valor:
+                    correo_usuario = user.get("correo")
+                    if not correo_usuario:
+                        popup.dismiss()
+                        mostrar_popup_error("Este usuario no tiene un correo electrónico registrado.")
+                        return
+                    nueva = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=8))
+                    estado["nueva_contrasena"] = nueva
+                    estado["correo_destino"] = correo_usuario
+                    user['contraseña'] = hashlib.sha256(nueva.encode('utf-8')).hexdigest()
                     popup.dismiss()
-                    mostrar_popup_exito(f"✅ Contraseña: [Censurada por seguridad]\n\nEn una versión de producción, te la enviaríamos por correo.")
+                    firebase_put(f"usuarios/{uid}", user, on_complete=reset_callback)
                     return
             popup.dismiss()
             mostrar_popup_error("Usuario o correo no encontrado")
@@ -484,8 +568,8 @@ class LoginScreen(Screen):
                 return
             firebase_get("usuarios", on_complete=buscar_callback)
 
-        btn_buscar = crear_boton("Buscar", GREEN, buscar_trigger, alpha=0.8)
-        btn_cancel = crear_boton("Cancelar", GRAY, lambda x: popup.dismiss(), alpha=0.8)
+        btn_buscar = crear_boton("🔄 Restablecer", GREEN, buscar_trigger, alpha=0.8)
+        btn_cancel = crear_boton("❌ Cancelar", GRAY, lambda x: popup.dismiss(), alpha=0.8)
         content.add_widget(btn_buscar)
         content.add_widget(btn_cancel)
         popup = Popup(title='Recuperar Contraseña', content=content, background_color=get_color_from_hex(BLACK), size_hint=(0.9, 0.6))
@@ -515,9 +599,9 @@ class RegisterScreen(Screen):
         self.ministerio = crear_input("Ministerio")
         self.ministerio.text = "Ejecutivos"
         self.ministerio.readonly = True
-        self.btn_genero = crear_boton("Género: Seleccionar", LIGHT_BLUE, self.seleccionar_genero, alpha=0.5)
-        self.btn_rol = crear_boton("Rol: Seleccionar", LIGHT_BLUE, self.seleccionar_rol, alpha=0.5)
-        self.btn_fecha = crear_boton("Elegir fecha de nacimiento", LIGHT_BLUE, self.abrir_calendario, alpha=0.5)
+        self.btn_genero = crear_boton("👤 Género: Seleccionar", LIGHT_BLUE, self.seleccionar_genero, alpha=0.5)
+        self.btn_rol = crear_boton("🎭 Rol: Seleccionar", LIGHT_BLUE, self.seleccionar_rol, alpha=0.5)
+        self.btn_fecha = crear_boton("📅 Elegir fecha de nacimiento", LIGHT_BLUE, self.abrir_calendario, alpha=0.5)
 
         for w in [self.username, self.email, self.password, self.confirm,
                   self.nombre, self.btn_fecha, self.tel, self.cedula, self.ministerio]:
@@ -528,8 +612,8 @@ class RegisterScreen(Screen):
         scroll_view.add_widget(scroll_layout)
         layout.add_widget(scroll_view)
 
-        btn_reg = crear_boton("Registrar", BLUE, self.registrar, alpha=0.8)
-        btn_back = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'login'), alpha=0.8)
+        btn_reg = crear_boton("✅ Registrar", BLUE, self.registrar, alpha=0.8)
+        btn_back = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'login'), alpha=0.8)
         layout.add_widget(btn_reg)
         layout.add_widget(btn_back)
         self.add_widget(layout)
@@ -618,43 +702,70 @@ class MenuPrincipalScreen(Screen):
         self.layout = BoxLayoutBG(bg_image='menu_background.png', orientation='vertical', padding=dp(20), spacing=dp(15))
         self.add_widget(self.layout)
 
+    def construir_secciones(self, app):
+        if app.rol == 'director':
+            return [
+                ("🐑  Ovejas", [
+                    ("Registrar Oveja", 'registrar_oveja'),
+                    ("Ver Todas las Ovejas", 'mis_ovejas'),
+                    ("Reasignar Oveja", 'reasignar_oveja'),
+                    ("Asignación Automática", 'asignacion_automatica'),
+                    ("Importar Ovejas (CSV)", 'importar_ovejas'),
+                ]),
+                ("📅  Seguimiento", [
+                    ("Calendario de Seguimientos", 'calendario'),
+                    ("Estadísticas", 'estadisticas'),
+                    ("Hacer Seguimiento", 'seguimiento'),
+                ]),
+                ("💬  Comunicación", [
+                    ("Chat", 'chat'),
+                ]),
+                ("⚙️  Administración", [
+                    ("Gestionar Usuarios", 'gestionar_usuarios'),
+                ]),
+            ]
+        else:
+            return [
+                ("🐑  Ovejas", [
+                    ("Registrar Oveja", 'registrar_oveja'),
+                    ("Mis Ovejas", 'mis_ovejas'),
+                ]),
+                ("📅  Seguimiento", [
+                    ("Calendario", 'calendario'),
+                    ("Estadísticas", 'estadisticas'),
+                    ("Hacer Seguimiento", 'seguimiento'),
+                ]),
+                ("💬  Comunicación", [
+                    ("Chat", 'chat'),
+                ]),
+            ]
+
     def on_enter(self):
         self.layout.clear_widgets()
         app = App.get_running_app()
         self.layout.add_widget(crear_titulo("Menú Principal"))
-        
-        if app.rol == 'director':
-            opciones = [
-                ("Registrar Oveja", 'registrar_oveja'),
-                ("Ver Todas las Ovejas", 'mis_ovejas'),
-                ("Reasignar Oveja", 'reasignar_oveja'),
-                ("Asignación Automática", 'asignacion_automatica'),
-                ("Gestionar Usuarios", 'gestionar_usuarios'),
-                ("Importar Ovejas (CSV)", 'importar_ovejas'),
-                ("Calendario de Seguimientos", 'calendario'),
-                ("Estadísticas", 'estadisticas'),
-                ("Hacer Seguimiento", 'seguimiento'),
-                ("Chat", 'chat'),
-                ("Cerrar Sesión", 'login')
-            ]
-        else:
-            opciones = [
-                ("Registrar Oveja", 'registrar_oveja'),
-                ("Mis Ovejas", 'mis_ovejas'),
-                ("Calendario", 'calendario'),
-                ("Estadísticas", 'estadisticas'),
-                ("Hacer Seguimiento", 'seguimiento'),
-                ("Chat", 'chat'),
-                ("Cerrar Sesión", 'login')
-            ]
-        
-        for texto, destino in opciones:
-            btn = crear_boton(texto, BLUE if destino != 'login' else DARK_BLUE, alpha=0.8)
-            if destino == 'login':
-                btn.bind(on_press=self.logout)
-            else:
+
+        accordion = Accordion(orientation='vertical', size_hint_y=1)
+
+        secciones = self.construir_secciones(app)
+
+        for titulo_seccion, opciones in secciones:
+            item = AccordionItem(title=titulo_seccion)
+            contenido = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(8), size_hint_y=None)
+            contenido.bind(minimum_height=contenido.setter('height'))
+            for texto, destino in opciones:
+                btn = crear_boton(texto, BLUE, alpha=0.8)
                 btn.bind(on_press=lambda x, d=destino: setattr(self.manager, 'current', d))
-            self.layout.add_widget(btn)
+                contenido.add_widget(btn)
+            scroll = ScrollView()
+            scroll.add_widget(contenido)
+            item.add_widget(scroll)
+            accordion.add_widget(item)
+
+        self.layout.add_widget(accordion)
+
+        btn_logout = crear_boton("🚪 Cerrar Sesión", DARK_BLUE, self.logout, alpha=0.8)
+        self.layout.add_widget(btn_logout)
 
     def logout(self, instance):
         app = App.get_running_app()
@@ -767,22 +878,22 @@ class RegistrarOvejaScreen(Screen):
         self.tiempo = crear_input("Tiempo en la iglesia")
         self.empresa = crear_input("Empresa (opcional)")
         self.direccion = crear_input("Dirección (opcional)")
-        self.btn_fecha = crear_boton("Elegir fecha de nacimiento", LIGHT_BLUE, self.abrir_calendario, alpha=0.5)
+        self.btn_fecha = crear_boton("📅 Elegir fecha de nacimiento", LIGHT_BLUE, self.abrir_calendario, alpha=0.5)
 
         for w in [self.nombre, self.btn_fecha, self.tel, self.cedula, self.tiempo, self.empresa, self.direccion]:
             scroll_layout.add_widget(w)
             
-        self.btn_genero = crear_boton("Género: Seleccionar", LIGHT_BLUE, self.seleccionar_genero, alpha=0.5)
-        self.btn_bautizado = crear_boton("¿Bautizado?: Seleccionar", LIGHT_BLUE, self.seleccionar_bautizado, alpha=0.5)
-        self.btn_grupo = crear_boton("Grupo pequeño: Seleccionar", LIGHT_BLUE, self.seleccionar_grupo, alpha=0.5)
+        self.btn_genero = crear_boton("👤 Género: Seleccionar", LIGHT_BLUE, self.seleccionar_genero, alpha=0.5)
+        self.btn_bautizado = crear_boton("✝️ ¿Bautizado?: Seleccionar", LIGHT_BLUE, self.seleccionar_bautizado, alpha=0.5)
+        self.btn_grupo = crear_boton("👥 Grupo pequeño: Seleccionar", LIGHT_BLUE, self.seleccionar_grupo, alpha=0.5)
         
         scroll_layout.add_widget(self.btn_genero)
         scroll_layout.add_widget(self.btn_bautizado)
         scroll_layout.add_widget(self.btn_grupo)
         
         btn_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(100), spacing=dp(10))
-        btn_layout.add_widget(crear_boton("Guardar", BLUE, self.guardar, alpha=0.8))
-        btn_layout.add_widget(crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8))
+        btn_layout.add_widget(crear_boton("💾 Guardar", BLUE, self.guardar, alpha=0.8))
+        btn_layout.add_widget(crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8))
         
         scroll_view.add_widget(scroll_layout)
         layout.add_widget(scroll_view)
@@ -926,7 +1037,7 @@ class MisOvejasScreen(Screen):
 
         self.actualizar_lista_ovejas(self.mis_ovejas_items)
 
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -997,8 +1108,8 @@ class MisOvejasScreen(Screen):
                 )
                 tarjeta.add_widget(obs_label)
                 btn_layout = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(10))
-                btn_edit = crear_boton("Editar", GREEN, lambda x, oveja_id=o['id'], oveja_data=o: self.editar_oveja(oveja_id, oveja_data), alpha=0.8)
-                btn_del = crear_boton("Eliminar", RED, lambda x, oveja_id=o['id'], oveja_nombre=o['nombre']: self.confirmar_eliminar(oveja_id, oveja_nombre), alpha=0.8)
+                btn_edit = crear_boton("✏️ Editar", GREEN, lambda x, oveja_id=o['id'], oveja_data=o: self.editar_oveja(oveja_id, oveja_data), alpha=0.8)
+                btn_del = crear_boton("🗑️ Eliminar", RED, lambda x, oveja_id=o['id'], oveja_nombre=o['nombre']: self.confirmar_eliminar(oveja_id, oveja_nombre), alpha=0.8)
                 btn_layout.add_widget(btn_edit)
                 btn_layout.add_widget(btn_del)
                 tarjeta.add_widget(btn_layout)
@@ -1019,8 +1130,8 @@ class MisOvejasScreen(Screen):
         for w in [self.edit_nombre, self.edit_tel, self.edit_cedula, self.edit_empresa, self.edit_direccion, self.edit_obs]:
             content.add_widget(w)
             
-        btn_guardar = crear_boton("Guardar", GREEN, self.guardar_cambios, alpha=0.8)
-        btn_cancel = crear_boton("Cancelar", GRAY, lambda x: self.popup_edit.dismiss(), alpha=0.8)
+        btn_guardar = crear_boton("💾 Guardar", GREEN, self.guardar_cambios, alpha=0.8)
+        btn_cancel = crear_boton("❌ Cancelar", GRAY, lambda x: self.popup_edit.dismiss(), alpha=0.8)
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
         btn_layout.add_widget(btn_guardar)
         btn_layout.add_widget(btn_cancel)
@@ -1065,8 +1176,8 @@ class MisOvejasScreen(Screen):
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         content.add_widget(crear_label(f"¿Estás seguro de eliminar a {oveja_nombre}?", color=get_color_from_hex(WHITE), halign='center'))
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
-        btn_si = crear_boton("Sí", RED, lambda x: self.eliminar_oveja(oveja_id), alpha=0.8)
-        btn_no = crear_boton("No", BLUE, lambda x: self.popup_confirmar.dismiss(), alpha=0.8)
+        btn_si = crear_boton("✅ Sí", RED, lambda x: self.eliminar_oveja(oveja_id), alpha=0.8)
+        btn_no = crear_boton("❌ No", BLUE, lambda x: self.popup_confirmar.dismiss(), alpha=0.8)
         btn_layout.add_widget(btn_si)
         btn_layout.add_widget(btn_no)
         content.add_widget(btn_layout)
@@ -1128,7 +1239,7 @@ class CalendarioScreen(Screen):
                 grid.add_widget(tarjeta)
             scroll.add_widget(grid)
             layout.add_widget(scroll)
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1181,13 +1292,13 @@ class EstadisticasScreen(Screen):
         # --- FIN SECCIÓN AÑADIDA ---
 
         if app.rol == 'director':
-            btn_exportar = crear_boton("Exportar a CSV", GREEN, self.exportar_a_csv, alpha=0.8)
+            btn_exportar = crear_boton("📤 Exportar a CSV", GREEN, self.exportar_a_csv, alpha=0.8)
             layout.add_widget(btn_exportar)
 
-            btn_exportar_asistencias = crear_boton("Exportar Asistencias", GREEN, self.exportar_asistencias_a_csv, alpha=0.8)
+            btn_exportar_asistencias = crear_boton("📤 Exportar Asistencias", GREEN, self.exportar_asistencias_a_csv, alpha=0.8)
             layout.add_widget(btn_exportar_asistencias)
 
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1290,7 +1401,7 @@ class SeguimientoScreen(Screen):
                 grid.add_widget(btn)
             scroll.add_widget(grid)
             layout.add_widget(scroll)
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1304,14 +1415,14 @@ class SeguimientoScreen(Screen):
         for p in PLANTILLAS:
             btn = crear_boton(p, BLUE, lambda x, texto=p: usar_plantilla(texto), alpha=0.8)
             grid.add_widget(btn)
-        btn_close = crear_boton("Cerrar", GRAY, lambda x: self.menu.dismiss(), alpha=0.8)
+        btn_close = crear_boton("❌ Cerrar", GRAY, lambda x: self.menu.dismiss(), alpha=0.8)
         grid.add_widget(btn_close)
 
         def usar_plantilla(texto):
             self.obs_input.text = texto
             self.menu.dismiss()
 
-        btn_plantilla = crear_boton("Usar plantilla", YELLOW, lambda x: self.menu.open(), alpha=0.5)
+        btn_plantilla = crear_boton("📋 Usar plantilla", YELLOW, lambda x: self.menu.open(), alpha=0.5)
         content.add_widget(btn_plantilla)
         
         obs_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(100), spacing=dp(5))
@@ -1325,13 +1436,13 @@ class SeguimientoScreen(Screen):
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
         
         # --- BOTÓN DE ASISTENCIA AÑADIDO ---
-        btn_asistencia = crear_boton("M Asist", ORANGE, lambda x: self.marcar_asistencia(), alpha=0.5)
+        btn_asistencia = crear_boton("✅ M Asist", ORANGE, lambda x: self.marcar_asistencia(), alpha=0.5)
         btn_layout.add_widget(btn_asistencia)
         # --- FIN BOTÓN DE ASISTENCIA AÑADIDO ---
 
-        btn_guardar = crear_boton("Guardar", GREEN, lambda x: self.guardar(), alpha=0.8)
-        btn_llamar = crear_boton("Llamar", DARK_BLUE, lambda x: mostrar_popup_error("Llamada no disponible"), alpha=0.8)
-        btn_whatsapp = crear_boton("WhatsApp", GREEN, lambda x: self.send_whatsapp_message(self.oveja_a_seguir.get('telefono')), alpha=0.8)
+        btn_guardar = crear_boton("💾 Guardar", GREEN, lambda x: self.guardar(), alpha=0.8)
+        btn_llamar = crear_boton("📞 Llamar", DARK_BLUE, lambda x: mostrar_popup_error("Llamada no disponible"), alpha=0.8)
+        btn_whatsapp = crear_boton("💬 WhatsApp", GREEN, lambda x: self.send_whatsapp_message(self.oveja_a_seguir.get('telefono')), alpha=0.8)
         
         btn_layout.add_widget(btn_guardar)
         btn_layout.add_widget(btn_llamar)
@@ -1459,7 +1570,7 @@ class ChatScreen(Screen):
             for otro in otros:
                 btn = crear_boton(f"Chat con {otro['nombre']}", BLUE, lambda x, o=otro: self.abrir_chat_con(o), alpha=0.8)
                 layout.add_widget(btn)
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1475,9 +1586,9 @@ class ChatScreen(Screen):
         self.input_mensaje = crear_input("Escribe un mensaje...", multiline=False)
         content.add_widget(self.input_mensaje)
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
-        btn_enviar = crear_boton("Enviar", GREEN, self.enviar_mensaje, alpha=0.8)
+        btn_enviar = crear_boton("📨 Enviar", GREEN, self.enviar_mensaje, alpha=0.8)
         btn_enviar.bind(on_press=lambda x: setattr(self, 'destinatario_id', otro.get('id')))
-        btn_volver = crear_boton("Volver", GRAY, lambda x: popup.dismiss(), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", GRAY, lambda x: popup.dismiss(), alpha=0.8)
         btn_layout.add_widget(btn_enviar)
         btn_layout.add_widget(btn_volver)
         content.add_widget(btn_layout)
@@ -1569,9 +1680,9 @@ class GestionarUsuariosScreen(Screen):
                 
                 btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
                 
-                btn_rol = crear_boton("Cambiar Rol", ORANGE, lambda x, user_id=uid, user_name=user_data.get('nombre'), current_rol=user_data.get('rol'): self.cambiar_rol(user_id, user_name, current_rol), alpha=0.8)
-                btn_reset_pass = crear_boton("Reset Pass", YELLOW, lambda x, user_id=uid: self.reset_pass(user_id), alpha=0.8)
-                btn_eliminar = crear_boton("Eliminar", RED, lambda x, user_id=uid, user_name=user_data.get('nombre'): self.confirmar_eliminar(user_id, user_name), alpha=0.8)
+                btn_rol = crear_boton("🔄 Cambiar Rol", ORANGE, lambda x, user_id=uid, user_name=user_data.get('nombre'), current_rol=user_data.get('rol'): self.cambiar_rol(user_id, user_name, current_rol), alpha=0.8)
+                btn_reset_pass = crear_boton("🔑 Reset Pass", YELLOW, lambda x, user_id=uid: self.reset_pass(user_id), alpha=0.8)
+                btn_eliminar = crear_boton("🗑️ Eliminar", RED, lambda x, user_id=uid, user_name=user_data.get('nombre'): self.confirmar_eliminar(user_id, user_name), alpha=0.8)
                 
                 btn_layout.add_widget(btn_rol)
                 btn_layout.add_widget(btn_reset_pass)
@@ -1583,7 +1694,7 @@ class GestionarUsuariosScreen(Screen):
             scroll.add_widget(grid)
             self.layout.add_widget(scroll)
 
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         self.layout.add_widget(btn_volver)
         self.add_widget(self.layout)
 
@@ -1631,8 +1742,8 @@ class GestionarUsuariosScreen(Screen):
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         content.add_widget(crear_label(f"¿Estás seguro de eliminar a {user_name}?", color=get_color_from_hex(WHITE), halign='center'))
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
-        btn_si = crear_boton("Sí, eliminar", RED, lambda x: self.eliminar_usuario(user_id), alpha=0.8)
-        btn_no = crear_boton("No, cancelar", BLUE, lambda x: self.popup_confirmar.dismiss(), alpha=0.8)
+        btn_si = crear_boton("🗑️ Sí, eliminar", RED, lambda x: self.eliminar_usuario(user_id), alpha=0.8)
+        btn_no = crear_boton("❌ No, cancelar", BLUE, lambda x: self.popup_confirmar.dismiss(), alpha=0.8)
         btn_layout.add_widget(btn_si)
         btn_layout.add_widget(btn_no)
         content.add_widget(btn_layout)
@@ -1686,7 +1797,7 @@ class ReasignarOvejaScreen(Screen):
             scroll.add_widget(grid)
             self.layout.add_widget(scroll)
 
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         self.layout.add_widget(btn_volver)
         self.add_widget(self.layout)
 
@@ -1715,7 +1826,7 @@ class ReasignarOvejaScreen(Screen):
             scroll.add_widget(grid)
             self.layout.add_widget(scroll)
         
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: self.mostrar_ovejas(), alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: self.mostrar_ovejas(), alpha=0.8)
         self.layout.add_widget(btn_volver)
         self.add_widget(self.layout)
 
@@ -1723,8 +1834,8 @@ class ReasignarOvejaScreen(Screen):
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         content.add_widget(crear_label(f"¿Reasignar a {oveja['nombre']} a {lider['nombre']}?", color=get_color_from_hex(WHITE), halign='center'))
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
-        btn_si = crear_boton("Sí, reasignar", RED, lambda x: self.reasignar(oveja, lider), alpha=0.8)
-        btn_no = crear_boton("No, cancelar", BLUE, lambda x: self.popup.dismiss(), alpha=0.8)
+        btn_si = crear_boton("🔄 Sí, reasignar", RED, lambda x: self.reasignar(oveja, lider), alpha=0.8)
+        btn_no = crear_boton("❌ No, cancelar", BLUE, lambda x: self.popup.dismiss(), alpha=0.8)
         btn_layout.add_widget(btn_si)
         btn_layout.add_widget(btn_no)
         content.add_widget(btn_layout)
@@ -1755,8 +1866,8 @@ class AsignacionAutomaticaScreen(Screen):
         self.layout.add_widget(crear_label("Esto asignará ovejas a líderes según su género, y las ovejas restantes se distribuirán equitativamente.",
                                      color=get_color_from_hex(GRAY), halign='center'))
         
-        btn_iniciar = crear_boton("Iniciar Asignación", GREEN, self.iniciar_asignacion_automatica, alpha=0.8)
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_iniciar = crear_boton("🔀 Iniciar Asignación", GREEN, self.iniciar_asignacion_automatica, alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         
         self.layout.add_widget(btn_iniciar)
         self.layout.add_widget(btn_volver)
@@ -1838,8 +1949,8 @@ class ImportarOvejasScreen(Screen):
         scroll_log.add_widget(self.import_log)
         self.layout.add_widget(scroll_log)
         
-        btn_seleccionar = crear_boton("Seleccionar Archivo CSV", GREEN, self.seleccionar_archivo, alpha=0.8)
-        btn_volver = crear_boton("Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_seleccionar = crear_boton("📁 Seleccionar Archivo CSV", GREEN, self.seleccionar_archivo, alpha=0.8)
+        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         
         self.layout.add_widget(btn_seleccionar)
         self.layout.add_widget(btn_volver)
@@ -1921,9 +2032,34 @@ class RebañoApp(App):
     data_cache = None
     store = None
 
+    def asegurar_usuario_admin(self):
+        def check_callback(success, data):
+            if not success:
+                return
+            data = data or {}
+            existe = any(u.get('nombre_usuario') == 'admin' for u in data.values())
+            if existe:
+                return
+            admin_data = {
+                'nombre_usuario': 'admin',
+                'correo': 'admin@rebanoejecutivo.com',
+                'contraseña': hashlib.sha256('123456'.encode('utf-8')).hexdigest(),
+                'nombre': 'Administrador',
+                'fecha_nacimiento': '',
+                'telefono': '0000000000',
+                'cedula': '0000000000',
+                'ministerio': 'Ejecutivos',
+                'genero': 'hombre',
+                'rol': 'director'
+            }
+            firebase_post('usuarios', admin_data, on_complete=lambda s, r: None)
+
+        firebase_get('usuarios', on_complete=check_callback)
+
     def build(self):
         self.data_cache = DataCache()
         self.store = JsonStore('user_session.json')
+        self.asegurar_usuario_admin()
         sm = ScreenManager()
         
         # Agrega todas las pantallas primero
