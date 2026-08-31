@@ -3,9 +3,8 @@ title = RebañoEjecutivo
 package.name = rebanoejecutivo
 package.domain = com.rebanoejecutivo.app
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas
+source.include_exts = py,png,jpg,kv,atlas,ttf
 version = 1.0
-icon.filename = %(source.dir)s/icon.png
 requirements = python3==3.11.6,hostpython3==3.11.6,kivy,requests
 
 orientation = portrait
