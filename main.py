@@ -38,6 +38,25 @@ import threading
 KIVY_FONT_FAMILY = None
 
 # ========================
+# 🙂 FUENTE PARA EMOJIS
+# ========================
+EMOJI_FONT_NAME = 'NotoEmoji'
+EMOJI_FONT_AVAILABLE = os.path.exists('NotoEmoji-Regular.ttf')
+if EMOJI_FONT_AVAILABLE:
+    LabelBase.register(name=EMOJI_FONT_NAME, fn_regular='NotoEmoji-Regular.ttf')
+
+def _split_emoji_prefix(texto):
+    """Separa un emoji (o grupo de símbolos) al inicio del texto, si existe."""
+    if not texto:
+        return None, texto
+    i = 0
+    while i < len(texto) and ord(texto[i]) > 0x2000 and texto[i] != ' ':
+        i += 1
+    if i == 0:
+        return None, texto
+    return texto[:i], texto[i:].lstrip()
+
+# ========================
 # CONFIGURACIÓN VISUAL
 # ========================
 Window.clearcolor = get_color_from_hex('#000000')
@@ -362,7 +381,7 @@ def mostrar_popup_exito(mensaje, on_dismiss=None, markup=False):
 def mostrar_popup_error(mensaje):
     content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
     content.add_widget(crear_label(mensaje, color=get_color_from_hex(WHITE), halign='center'))
-    btn = crear_boton("❌ Cerrar", RED, size_hint_y=None, alpha=1)
+    btn = crear_boton("✖ Cerrar", RED, size_hint_y=None, alpha=1)
     content.add_widget(btn)
     popup = Popup(title='Error', content=content, background_color=get_color_from_hex(RED), size_hint=(0.8, 0.4))
     btn.bind(on_press=popup.dismiss)
@@ -400,12 +419,24 @@ class BotonRedondeado(Button):
 def crear_boton(texto, color_hex, on_press=None, size_hint_y=None, alpha=1.0):
     """
     Crea un botón ovalado con color de fondo y transparencia personalizables.
+    Si el texto empieza con un emoji y la fuente de emojis está disponible,
+    el emoji se dibuja con esa fuente y el resto del texto con la fuente normal.
     """
     color = get_color_from_hex(color_hex)
     rgba_color = (color[0], color[1], color[2], alpha)
-    
+
+    emoji_char, texto_limpio = _split_emoji_prefix(texto)
+    markup = False
+    display_text = texto
+    if emoji_char and EMOJI_FONT_AVAILABLE:
+        display_text = f"[font={EMOJI_FONT_NAME}]{emoji_char}[/font] {texto_limpio}"
+        markup = True
+    elif emoji_char and not EMOJI_FONT_AVAILABLE:
+        display_text = texto_limpio
+
     btn = BotonRedondeado(
-        text=texto,
+        text=display_text,
+        markup=markup,
         rgba_color=rgba_color,
         color=get_color_from_hex(WHITE),
         size_hint_y=size_hint_y or None,
@@ -440,7 +471,7 @@ class CalendarPopup(Popup):
         content.add_widget(self.spinner_day)
 
         btn_guardar = crear_boton("💾 Guardar Fecha", GREEN, self.save_date)
-        btn_cancel = crear_boton("❌ Cancelar", GRAY, self.dismiss)
+        btn_cancel = crear_boton("✖ Cancelar", GRAY, self.dismiss)
         content.add_widget(btn_guardar)
         content.add_widget(btn_cancel)
         self.content = content
@@ -569,7 +600,7 @@ class LoginScreen(Screen):
             firebase_get("usuarios", on_complete=buscar_callback)
 
         btn_buscar = crear_boton("🔄 Restablecer", GREEN, buscar_trigger, alpha=0.8)
-        btn_cancel = crear_boton("❌ Cancelar", GRAY, lambda x: popup.dismiss(), alpha=0.8)
+        btn_cancel = crear_boton("✖ Cancelar", GRAY, lambda x: popup.dismiss(), alpha=0.8)
         content.add_widget(btn_buscar)
         content.add_widget(btn_cancel)
         popup = Popup(title='Recuperar Contraseña', content=content, background_color=get_color_from_hex(BLACK), size_hint=(0.9, 0.6))
@@ -613,7 +644,7 @@ class RegisterScreen(Screen):
         layout.add_widget(scroll_view)
 
         btn_reg = crear_boton("✅ Registrar", BLUE, self.registrar, alpha=0.8)
-        btn_back = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'login'), alpha=0.8)
+        btn_back = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'login'), alpha=0.8)
         layout.add_widget(btn_reg)
         layout.add_widget(btn_back)
         self.add_widget(layout)
@@ -705,37 +736,37 @@ class MenuPrincipalScreen(Screen):
     def construir_secciones(self, app):
         if app.rol == 'director':
             return [
-                ("🐑  Ovejas", [
+                ("Ovejas", [
                     ("Registrar Oveja", 'registrar_oveja'),
                     ("Ver Todas las Ovejas", 'mis_ovejas'),
                     ("Reasignar Oveja", 'reasignar_oveja'),
                     ("Asignación Automática", 'asignacion_automatica'),
                     ("Importar Ovejas (CSV)", 'importar_ovejas'),
                 ]),
-                ("📅  Seguimiento", [
+                ("Seguimiento", [
                     ("Calendario de Seguimientos", 'calendario'),
                     ("Estadísticas", 'estadisticas'),
                     ("Hacer Seguimiento", 'seguimiento'),
                 ]),
-                ("💬  Comunicación", [
+                ("Comunicación", [
                     ("Chat", 'chat'),
                 ]),
-                ("⚙️  Administración", [
+                ("Administración", [
                     ("Gestionar Usuarios", 'gestionar_usuarios'),
                 ]),
             ]
         else:
             return [
-                ("🐑  Ovejas", [
+                ("Ovejas", [
                     ("Registrar Oveja", 'registrar_oveja'),
                     ("Mis Ovejas", 'mis_ovejas'),
                 ]),
-                ("📅  Seguimiento", [
+                ("Seguimiento", [
                     ("Calendario", 'calendario'),
                     ("Estadísticas", 'estadisticas'),
                     ("Hacer Seguimiento", 'seguimiento'),
                 ]),
-                ("💬  Comunicación", [
+                ("Comunicación", [
                     ("Chat", 'chat'),
                 ]),
             ]
@@ -884,7 +915,7 @@ class RegistrarOvejaScreen(Screen):
             scroll_layout.add_widget(w)
             
         self.btn_genero = crear_boton("👤 Género: Seleccionar", LIGHT_BLUE, self.seleccionar_genero, alpha=0.5)
-        self.btn_bautizado = crear_boton("✝️ ¿Bautizado?: Seleccionar", LIGHT_BLUE, self.seleccionar_bautizado, alpha=0.5)
+        self.btn_bautizado = crear_boton("✝ ¿Bautizado?: Seleccionar", LIGHT_BLUE, self.seleccionar_bautizado, alpha=0.5)
         self.btn_grupo = crear_boton("👥 Grupo pequeño: Seleccionar", LIGHT_BLUE, self.seleccionar_grupo, alpha=0.5)
         
         scroll_layout.add_widget(self.btn_genero)
@@ -893,7 +924,7 @@ class RegistrarOvejaScreen(Screen):
         
         btn_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(100), spacing=dp(10))
         btn_layout.add_widget(crear_boton("💾 Guardar", BLUE, self.guardar, alpha=0.8))
-        btn_layout.add_widget(crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8))
+        btn_layout.add_widget(crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8))
         
         scroll_view.add_widget(scroll_layout)
         layout.add_widget(scroll_view)
@@ -1037,7 +1068,7 @@ class MisOvejasScreen(Screen):
 
         self.actualizar_lista_ovejas(self.mis_ovejas_items)
 
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1108,8 +1139,8 @@ class MisOvejasScreen(Screen):
                 )
                 tarjeta.add_widget(obs_label)
                 btn_layout = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(10))
-                btn_edit = crear_boton("✏️ Editar", GREEN, lambda x, oveja_id=o['id'], oveja_data=o: self.editar_oveja(oveja_id, oveja_data), alpha=0.8)
-                btn_del = crear_boton("🗑️ Eliminar", RED, lambda x, oveja_id=o['id'], oveja_nombre=o['nombre']: self.confirmar_eliminar(oveja_id, oveja_nombre), alpha=0.8)
+                btn_edit = crear_boton("✏ Editar", GREEN, lambda x, oveja_id=o['id'], oveja_data=o: self.editar_oveja(oveja_id, oveja_data), alpha=0.8)
+                btn_del = crear_boton("🗑 Eliminar", RED, lambda x, oveja_id=o['id'], oveja_nombre=o['nombre']: self.confirmar_eliminar(oveja_id, oveja_nombre), alpha=0.8)
                 btn_layout.add_widget(btn_edit)
                 btn_layout.add_widget(btn_del)
                 tarjeta.add_widget(btn_layout)
@@ -1131,7 +1162,7 @@ class MisOvejasScreen(Screen):
             content.add_widget(w)
             
         btn_guardar = crear_boton("💾 Guardar", GREEN, self.guardar_cambios, alpha=0.8)
-        btn_cancel = crear_boton("❌ Cancelar", GRAY, lambda x: self.popup_edit.dismiss(), alpha=0.8)
+        btn_cancel = crear_boton("✖ Cancelar", GRAY, lambda x: self.popup_edit.dismiss(), alpha=0.8)
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
         btn_layout.add_widget(btn_guardar)
         btn_layout.add_widget(btn_cancel)
@@ -1177,7 +1208,7 @@ class MisOvejasScreen(Screen):
         content.add_widget(crear_label(f"¿Estás seguro de eliminar a {oveja_nombre}?", color=get_color_from_hex(WHITE), halign='center'))
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
         btn_si = crear_boton("✅ Sí", RED, lambda x: self.eliminar_oveja(oveja_id), alpha=0.8)
-        btn_no = crear_boton("❌ No", BLUE, lambda x: self.popup_confirmar.dismiss(), alpha=0.8)
+        btn_no = crear_boton("✖ No", BLUE, lambda x: self.popup_confirmar.dismiss(), alpha=0.8)
         btn_layout.add_widget(btn_si)
         btn_layout.add_widget(btn_no)
         content.add_widget(btn_layout)
@@ -1239,7 +1270,7 @@ class CalendarioScreen(Screen):
                 grid.add_widget(tarjeta)
             scroll.add_widget(grid)
             layout.add_widget(scroll)
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1298,7 +1329,7 @@ class EstadisticasScreen(Screen):
             btn_exportar_asistencias = crear_boton("📤 Exportar Asistencias", GREEN, self.exportar_asistencias_a_csv, alpha=0.8)
             layout.add_widget(btn_exportar_asistencias)
 
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1401,7 +1432,7 @@ class SeguimientoScreen(Screen):
                 grid.add_widget(btn)
             scroll.add_widget(grid)
             layout.add_widget(scroll)
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1415,7 +1446,7 @@ class SeguimientoScreen(Screen):
         for p in PLANTILLAS:
             btn = crear_boton(p, BLUE, lambda x, texto=p: usar_plantilla(texto), alpha=0.8)
             grid.add_widget(btn)
-        btn_close = crear_boton("❌ Cerrar", GRAY, lambda x: self.menu.dismiss(), alpha=0.8)
+        btn_close = crear_boton("✖ Cerrar", GRAY, lambda x: self.menu.dismiss(), alpha=0.8)
         grid.add_widget(btn_close)
 
         def usar_plantilla(texto):
@@ -1570,7 +1601,7 @@ class ChatScreen(Screen):
             for otro in otros:
                 btn = crear_boton(f"Chat con {otro['nombre']}", BLUE, lambda x, o=otro: self.abrir_chat_con(o), alpha=0.8)
                 layout.add_widget(btn)
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         layout.add_widget(btn_volver)
         self.add_widget(layout)
 
@@ -1588,7 +1619,7 @@ class ChatScreen(Screen):
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
         btn_enviar = crear_boton("📨 Enviar", GREEN, self.enviar_mensaje, alpha=0.8)
         btn_enviar.bind(on_press=lambda x: setattr(self, 'destinatario_id', otro.get('id')))
-        btn_volver = crear_boton("⬅️ Volver", GRAY, lambda x: popup.dismiss(), alpha=0.8)
+        btn_volver = crear_boton("< Volver", GRAY, lambda x: popup.dismiss(), alpha=0.8)
         btn_layout.add_widget(btn_enviar)
         btn_layout.add_widget(btn_volver)
         content.add_widget(btn_layout)
@@ -1682,7 +1713,7 @@ class GestionarUsuariosScreen(Screen):
                 
                 btn_rol = crear_boton("🔄 Cambiar Rol", ORANGE, lambda x, user_id=uid, user_name=user_data.get('nombre'), current_rol=user_data.get('rol'): self.cambiar_rol(user_id, user_name, current_rol), alpha=0.8)
                 btn_reset_pass = crear_boton("🔑 Reset Pass", YELLOW, lambda x, user_id=uid: self.reset_pass(user_id), alpha=0.8)
-                btn_eliminar = crear_boton("🗑️ Eliminar", RED, lambda x, user_id=uid, user_name=user_data.get('nombre'): self.confirmar_eliminar(user_id, user_name), alpha=0.8)
+                btn_eliminar = crear_boton("🗑 Eliminar", RED, lambda x, user_id=uid, user_name=user_data.get('nombre'): self.confirmar_eliminar(user_id, user_name), alpha=0.8)
                 
                 btn_layout.add_widget(btn_rol)
                 btn_layout.add_widget(btn_reset_pass)
@@ -1694,7 +1725,7 @@ class GestionarUsuariosScreen(Screen):
             scroll.add_widget(grid)
             self.layout.add_widget(scroll)
 
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         self.layout.add_widget(btn_volver)
         self.add_widget(self.layout)
 
@@ -1742,8 +1773,8 @@ class GestionarUsuariosScreen(Screen):
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         content.add_widget(crear_label(f"¿Estás seguro de eliminar a {user_name}?", color=get_color_from_hex(WHITE), halign='center'))
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
-        btn_si = crear_boton("🗑️ Sí, eliminar", RED, lambda x: self.eliminar_usuario(user_id), alpha=0.8)
-        btn_no = crear_boton("❌ No, cancelar", BLUE, lambda x: self.popup_confirmar.dismiss(), alpha=0.8)
+        btn_si = crear_boton("🗑 Sí, eliminar", RED, lambda x: self.eliminar_usuario(user_id), alpha=0.8)
+        btn_no = crear_boton("✖ No, cancelar", BLUE, lambda x: self.popup_confirmar.dismiss(), alpha=0.8)
         btn_layout.add_widget(btn_si)
         btn_layout.add_widget(btn_no)
         content.add_widget(btn_layout)
@@ -1797,7 +1828,7 @@ class ReasignarOvejaScreen(Screen):
             scroll.add_widget(grid)
             self.layout.add_widget(scroll)
 
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         self.layout.add_widget(btn_volver)
         self.add_widget(self.layout)
 
@@ -1826,7 +1857,7 @@ class ReasignarOvejaScreen(Screen):
             scroll.add_widget(grid)
             self.layout.add_widget(scroll)
         
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: self.mostrar_ovejas(), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: self.mostrar_ovejas(), alpha=0.8)
         self.layout.add_widget(btn_volver)
         self.add_widget(self.layout)
 
@@ -1835,7 +1866,7 @@ class ReasignarOvejaScreen(Screen):
         content.add_widget(crear_label(f"¿Reasignar a {oveja['nombre']} a {lider['nombre']}?", color=get_color_from_hex(WHITE), halign='center'))
         btn_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
         btn_si = crear_boton("🔄 Sí, reasignar", RED, lambda x: self.reasignar(oveja, lider), alpha=0.8)
-        btn_no = crear_boton("❌ No, cancelar", BLUE, lambda x: self.popup.dismiss(), alpha=0.8)
+        btn_no = crear_boton("✖ No, cancelar", BLUE, lambda x: self.popup.dismiss(), alpha=0.8)
         btn_layout.add_widget(btn_si)
         btn_layout.add_widget(btn_no)
         content.add_widget(btn_layout)
@@ -1867,7 +1898,7 @@ class AsignacionAutomaticaScreen(Screen):
                                      color=get_color_from_hex(GRAY), halign='center'))
         
         btn_iniciar = crear_boton("🔀 Iniciar Asignación", GREEN, self.iniciar_asignacion_automatica, alpha=0.8)
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         
         self.layout.add_widget(btn_iniciar)
         self.layout.add_widget(btn_volver)
@@ -1950,7 +1981,7 @@ class ImportarOvejasScreen(Screen):
         self.layout.add_widget(scroll_log)
         
         btn_seleccionar = crear_boton("📁 Seleccionar Archivo CSV", GREEN, self.seleccionar_archivo, alpha=0.8)
-        btn_volver = crear_boton("⬅️ Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
+        btn_volver = crear_boton("< Volver", DARK_BLUE, lambda x: setattr(self.manager, 'current', 'menu_principal'), alpha=0.8)
         
         self.layout.add_widget(btn_seleccionar)
         self.layout.add_widget(btn_volver)
