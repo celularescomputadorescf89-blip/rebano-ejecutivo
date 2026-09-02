@@ -6,21 +6,16 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 version = 1.0
 icon.filename = %(source.dir)s/icon.png
-
-# Se eliminaron las versiones fijas de python3/hostpython3
-requirements = python3,kivy,requests
+requirements = python3==3.11.6,hostpython3==3.11.6,kivy,requests
 
 orientation = portrait
 fullscreen = 0
 
-# Permisos y APIs
-android.permissions = INTERNET
+android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
 android.api = 33
 android.minapi = 21
-android.archs = arm64-v8a, armeabi-v7a
-
-# Permitir URLs HTTP no seguras si ejecutas consultas externas
-android.uses_cleartext_traffic = true
+android.ndk = 25b
+android.arch = arm64-v8a
 
 [buildozer]
 log_level = 2
