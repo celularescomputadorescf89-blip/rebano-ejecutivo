@@ -42,6 +42,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: apk-file
+          path: bin/*.apk          export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac))))
+          echo "Using JAVA_HOME=$JAVA_HOME"
+          yes | buildozer android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-file
           path: bin/*.apk        run: |
           export JAVA_HOME=$JAVA_HOME_17_X64
           echo "Using JAVA_HOME=$JAVA_HOME"
