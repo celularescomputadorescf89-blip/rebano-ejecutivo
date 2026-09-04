@@ -6,12 +6,12 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 version = 1.0
 icon.filename = %(source.dir)s/icon.png
-requirements = python3==3.11.6,hostpython3==3.11.6,kivy,requests
+requirements = python3==3.11.6,hostpython3==3.11.6,kivy,requests,plyer
 
 orientation = portrait
 fullscreen = 0
 
-android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
+android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,POST_NOTIFICATIONS
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
@@ -20,3 +20,4 @@ android.arch = arm64-v8a
 [buildozer]
 log_level = 2
 warn_on_root = 1
+
